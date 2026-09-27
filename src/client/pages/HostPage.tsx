@@ -3193,8 +3193,16 @@ export function HostPage({
     setPublishState("connecting");
     const publisher = screenPublisherRef.current ?? new ScreenPublisher();
     screenPublisherRef.current = publisher;
+    // Publish whatever Piik is already sharing, so the host never gets asked
+    // to pick the same screen twice. The host audio's source stream is the
+    // mixed one (screen audio plus microphone), which is what the viewers
+    // hear; fall back to the raw capture when no mixer is running. Only when
+    // nothing is being shared does the publisher capture its own surface.
+    const shared = hostAudioRef.current?.sourceStream ?? streamRef.current;
+    const source = shared && shared.getVideoTracks().length > 0 ? shared : null;
     try {
       await publisher.start(
+        source,
         (stream) => {
           if (publishPreviewRef.current) {
             publishPreviewRef.current.srcObject = stream;
@@ -4279,21 +4287,17 @@ export function HostPage({
                 <div className="lr-invite-field">
                   <RowGroup actions>
                     <Btn
-                      icon={publishState === "live" ? (copiedHls ? "check" : "copy") : "cast"}
+                      icon={copiedHls ? "check" : "copy"}
                       busy={publishState === "connecting"}
                       cap={
-                        publishState === "live"
-                          ? copiedHls ? "common.copied" : "host.invite.copyHls"
-                          : publishState === "connecting"
-                            ? "host.invite.publishConnecting"
-                            : "host.invite.publishAndCopy"
+                        publishState === "connecting"
+                          ? "host.invite.publishConnecting"
+                          : copiedHls ? "common.copied" : "host.invite.copyHls"
                       }
                       title={
-                        publishState === "live"
-                          ? copiedHls ? "common.copied" : "host.invite.copyHls"
-                          : publishState === "connecting"
-                            ? "host.invite.publishConnecting"
-                            : "host.invite.publishAndCopy"
+                        publishState === "connecting"
+                          ? "host.invite.publishConnecting"
+                          : copiedHls ? "common.copied" : "host.invite.copyHls"
                       }
                       hint={publishState === "live" ? "hint-copy-invite" : undefined}
                       hintTone={copiedHls ? "live" : undefined}

@@ -77,29 +77,38 @@ export class ScreenPublisher {
   private stream: MediaStream | null = null;
   private sessionUrl: string | null = null;
   private stopping = false;
+  private ownedStream = false;
 
   get active(): boolean {
     return this.stream !== null;
   }
 
   /**
-   * Captures the screen, negotiates WHIP, and hands the local stream to
-   * `onPreview` once publishing. `onEnded` fires when the capture ends by
-   * itself (the browser's "stop sharing" bar) — the caller resets its state;
-   * no further stop() is needed.
+   * Publishes `source` — normally the stream Piik is already sharing, so the
+   * host is never asked to pick the screen twice. When `source` is null the
+   * publisher captures one itself and owns it (stopping then ends the
+   * capture as well). `onEnded` fires when the capture ends by itself, either
+   * from the browser's "stop sharing" bar or because the host stopped sharing
+   * from Piik's own controls — the caller resets its state; no further stop()
+   * is needed.
    */
   async start(
+    source: MediaStream | null,
     onPreview: (stream: MediaStream) => void,
     onEnded: () => void,
   ): Promise<void> {
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: true,
-      });
-    } catch {
-      throw new ScreenPublishError("capture");
+    let stream = source;
+    this.ownedStream = false;
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: 30 },
+          audio: true,
+        });
+        this.ownedStream = true;
+      } catch {
+        throw new ScreenPublishError("capture");
+      }
     }
     this.stopping = false;
     this.stream = stream;
@@ -177,7 +186,12 @@ export class ScreenPublisher {
     }
     this.peerConnection?.close();
     this.peerConnection = null;
-    this.stream?.getTracks().forEach((track) => track.stop());
+    if (this.ownedStream) {
+      // Only a stream the publisher captured itself may be torn down; a
+      // borrowed one still belongs to Piik's own share.
+      this.stream?.getTracks().forEach((track) => track.stop());
+      this.ownedStream = false;
+    }
     this.stream = null;
   }
 }
