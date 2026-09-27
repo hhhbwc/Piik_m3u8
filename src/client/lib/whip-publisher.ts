@@ -180,29 +180,7 @@ export class ScreenPublisher {
 
       // Apply the host's ceilings to this leg too, so the quality settings the
       // host sees in the UI govern the m3u8 output and not only the peer share.
-      for (const sender of peerConnection.getSenders()) {
-        const kind = sender.track?.kind;
-        if (kind !== "video" && kind !== "audio") {
-          continue;
-        }
-        const ceiling = kind === "video"
-          ? clampBitrate(limits.videoMaxBitrateBps, FALLBACK_VIDEO_BITRATE_BPS,
-            MAX_USEFUL_VIDEO_BITRATE_BPS)
-          : limits.audioMaxBitrateBps;
-        if (ceiling === undefined) {
-          continue;
-        }
-        try {
-          const parameters = sender.getParameters();
-          if (parameters.encodings.length === 0) {
-            parameters.encodings = [{}];
-          }
-          parameters.encodings[0].maxBitrate = ceiling;
-          await sender.setParameters(parameters);
-        } catch {
-          // The negotiation works without the cap.
-        }
-      }
+      await this.applyLimits(limits);
     } catch (error) {
       await this.stop().catch(() => undefined);
       throw error;
@@ -212,9 +190,11 @@ export class ScreenPublisher {
   }
 
   /**
-   * Re-applies send-side ceilings to a live session, so raising the bitrate
-   * mid-share takes effect without restarting the publish. Resolution and
-   * frame rate follow the shared track on their own.
+   * Applies the send-side ceilings. Call this only while the session is being
+   * established: a WHIP session offers no renegotiation (just POST to publish
+   * and DELETE to tear down), so touching sender parameters on a live session
+   * strands it — the picture freezes instead of changing quality. To change
+   * quality mid-share, stop and republish instead.
    */
   async applyLimits(limits: PublishLimits): Promise<void> {
     const peerConnection = this.peerConnection;

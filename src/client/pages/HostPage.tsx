@@ -540,6 +540,7 @@ export function HostPage({
   // the session is live.
   const [publishState, setPublishState] = useState<"idle" | "connecting" | "live">("idle");
   const screenPublisherRef = useRef<ScreenPublisher | null>(null);
+  const publishedQualityRef = useRef<QualitySettings | null>(null);
   const publishPreviewRef = useRef<HTMLVideoElement | null>(null);
   const [switchingSource, setSwitchingSource] = useState(false);
   const [changingQuality, setChangingQuality] = useState(false);
@@ -3186,17 +3187,28 @@ export function HostPage({
     }
   }
 
-  // Raising the bitrate ceiling while the bridge is live should not demand a
-  // restart; resolution and frame rate already follow the shared track.
+  // A live WHIP session cannot renegotiate, and changing the capture profile
+  // mid-share (resolution, frame rate) makes the browser want to. Republish
+  // instead of adjusting the live senders: the shared track is reused, so the
+  // host is not asked to pick the screen again, and the picture comes back
+  // within a second or two.
   useEffect(() => {
+    if (publishState === "idle") {
+      publishedQualityRef.current = null;
+      return;
+    }
     if (publishState !== "live") {
       return;
     }
-    void screenPublisherRef.current?.applyLimits({
-      videoMaxBitrateBps: qualitySettings.maxBitrate,
-      audioMaxBitrateBps:
-        SCREEN_AUDIO_BITRATES[resolveScreenAudioQuality(qualitySettings.screenAudioQuality)],
-    });
+    const previous = publishedQualityRef.current;
+    publishedQualityRef.current = qualitySettings;
+    if (!previous || qualitySettingsEqual(previous, qualitySettings)) {
+      return;
+    }
+    void (async () => {
+      await stopScreenPublish();
+      await startScreenPublish();
+    })();
   }, [publishState, qualitySettings]);
 
   async function startScreenPublish(): Promise<boolean> {
