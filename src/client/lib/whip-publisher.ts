@@ -11,7 +11,33 @@
 
 const WHIP_ENDPOINT = "/api/whip";
 const ICE_GATHER_TIMEOUT_MS = 2_000;
-const MAX_VIDEO_BITRATE_BPS = 5_000_000;
+const FALLBACK_VIDEO_BITRATE_BPS = 5_000_000;
+
+// The bridge re-encodes to H264 on a 4 Mbps uplink, so asking the browser for
+// far more than that only spends the host's upload on bits the server drops.
+const MAX_USEFUL_VIDEO_BITRATE_BPS = 6_000_000;
+
+/**
+ * Send-side limits for the WHIP leg. They mirror the quality settings the host
+ * picked for Piik's own share: resolution and frame rate already come along
+ * because the publisher reuses the shared track, but the bitrate ceilings live
+ * on the RTP sender and have to be applied to this peer connection too.
+ */
+export interface PublishLimits {
+  videoMaxBitrateBps?: number;
+  audioMaxBitrateBps?: number;
+}
+
+function clampBitrate(
+  requested: number | undefined,
+  fallback: number,
+  ceiling: number,
+): number {
+  if (!Number.isFinite(requested) || (requested ?? 0) <= 0) {
+    return fallback;
+  }
+  return Math.min(requested as number, ceiling);
+}
 
 function preferVP8(peerConnection: RTCPeerConnection): void {
   const getCapabilities = RTCRtpSender.getCapabilities?.bind(RTCRtpSender);
@@ -96,6 +122,7 @@ export class ScreenPublisher {
     source: MediaStream | null,
     onPreview: (stream: MediaStream) => void,
     onEnded: () => void,
+    limits: PublishLimits = {},
   ): Promise<void> {
     let stream = source;
     this.ownedStream = false;
@@ -151,9 +178,18 @@ export class ScreenPublisher {
         ? new URL(location, window.location.origin).toString()
         : null;
 
-      // Keep a busy screen from starving the shared server link; advisory.
+      // Apply the host's ceilings to this leg too, so the quality settings the
+      // host sees in the UI govern the m3u8 output and not only the peer share.
       for (const sender of peerConnection.getSenders()) {
-        if (sender.track?.kind !== "video") {
+        const kind = sender.track?.kind;
+        if (kind !== "video" && kind !== "audio") {
+          continue;
+        }
+        const ceiling = kind === "video"
+          ? clampBitrate(limits.videoMaxBitrateBps, FALLBACK_VIDEO_BITRATE_BPS,
+            MAX_USEFUL_VIDEO_BITRATE_BPS)
+          : limits.audioMaxBitrateBps;
+        if (ceiling === undefined) {
           continue;
         }
         try {
@@ -161,7 +197,7 @@ export class ScreenPublisher {
           if (parameters.encodings.length === 0) {
             parameters.encodings = [{}];
           }
-          parameters.encodings[0].maxBitrate = MAX_VIDEO_BITRATE_BPS;
+          parameters.encodings[0].maxBitrate = ceiling;
           await sender.setParameters(parameters);
         } catch {
           // The negotiation works without the cap.
@@ -173,6 +209,41 @@ export class ScreenPublisher {
     }
 
     onPreview(stream);
+  }
+
+  /**
+   * Re-applies send-side ceilings to a live session, so raising the bitrate
+   * mid-share takes effect without restarting the publish. Resolution and
+   * frame rate follow the shared track on their own.
+   */
+  async applyLimits(limits: PublishLimits): Promise<void> {
+    const peerConnection = this.peerConnection;
+    if (!peerConnection) {
+      return;
+    }
+    for (const sender of peerConnection.getSenders()) {
+      const kind = sender.track?.kind;
+      if (kind !== "video" && kind !== "audio") {
+        continue;
+      }
+      const ceiling = kind === "video"
+        ? clampBitrate(limits.videoMaxBitrateBps, FALLBACK_VIDEO_BITRATE_BPS,
+          MAX_USEFUL_VIDEO_BITRATE_BPS)
+        : limits.audioMaxBitrateBps;
+      if (ceiling === undefined) {
+        continue;
+      }
+      try {
+        const parameters = sender.getParameters();
+        if (parameters.encodings.length === 0) {
+          parameters.encodings = [{}];
+        }
+        parameters.encodings[0].maxBitrate = ceiling;
+        await sender.setParameters(parameters);
+      } catch {
+        // The session keeps running with its previous ceiling.
+      }
+    }
   }
 
   async stop(): Promise<void> {

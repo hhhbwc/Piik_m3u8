@@ -3186,6 +3186,19 @@ export function HostPage({
     }
   }
 
+  // Raising the bitrate ceiling while the bridge is live should not demand a
+  // restart; resolution and frame rate already follow the shared track.
+  useEffect(() => {
+    if (publishState !== "live") {
+      return;
+    }
+    void screenPublisherRef.current?.applyLimits({
+      videoMaxBitrateBps: qualitySettings.maxBitrate,
+      audioMaxBitrateBps:
+        SCREEN_AUDIO_BITRATES[resolveScreenAudioQuality(qualitySettings.screenAudioQuality)],
+    });
+  }, [publishState, qualitySettings]);
+
   async function startScreenPublish(): Promise<boolean> {
     if (publishState === "connecting") {
       return false;
@@ -3215,6 +3228,18 @@ export function HostPage({
           }
           setPublishState("idle");
           clearPublishPreview();
+        },
+        // The host's own quality settings govern this leg too. Resolution and
+        // frame rate already travel with the shared track; the bitrate
+        // ceilings live on this peer connection's senders.
+        {
+          videoMaxBitrateBps: qualitySettingsRef.current.maxBitrate,
+          audioMaxBitrateBps:
+            SCREEN_AUDIO_BITRATES[
+              resolveScreenAudioQuality(
+                qualitySettingsRef.current.screenAudioQuality,
+              )
+            ],
         },
       );
       setPublishState("live");
