@@ -205,6 +205,9 @@ export const en: Record<CopyKey, string> = {
   "host.invite.credentialRequired": "This room is invite-only; turn on Skip passwords",
   "host.invite.emptyPassword": "No invite link; room code plus password still works",
   "host.invite.emptyPrivate": "No invite link; rotate one before inviting",
+  "host.invite.hls": "HLS stream link (m3u8)",
+  "host.invite.copyHls": "Copy m3u8 link",
+  "host.invite.copyHlsFailed": "Could not copy the m3u8 link; try again",
 
   "host.policy": "Admission",
   "host.policy.open": "Open",

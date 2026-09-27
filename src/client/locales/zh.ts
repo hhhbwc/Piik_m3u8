@@ -205,6 +205,9 @@ export const zh = {
   "host.invite.credentialRequired": "当前仅限邀请，请开启免密邀请",
   "host.invite.emptyPassword": "暂无邀请链接，仍可凭房间号和密码加入",
   "host.invite.emptyPrivate": "暂无邀请链接，请先更新链接再邀请他人",
+  "host.invite.hls": "HLS 直播链接（m3u8）",
+  "host.invite.copyHls": "复制 m3u8 链接",
+  "host.invite.copyHlsFailed": "无法复制 m3u8 链接，请稍后重试",
 
   "host.policy": "准入方式",
   "host.policy.open": "公开",

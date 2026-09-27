@@ -226,6 +226,12 @@ const AUDIO_QUALITY_CAPTIONS: Record<ScreenAudioQuality, CopyKey> = {
   "very-high": "host.advanced.audio.veryHigh",
 };
 
+// HLS (m3u8) playlist path served by the server-side stream bridge. The host
+// page derives the public playlist URL from the invite URL's origin, so the
+// link works through the same public tunnel as the viewer page. Adjust this
+// constant if the server exposes the playlist under a different path.
+const HLS_PLAYLIST_PATH = "/live/index.m3u8";
+
 type ViewerQualityEvidence = Extract<
   ServerMessage,
   { type: "viewer-quality-evidence" }
@@ -513,6 +519,21 @@ export function HostPage({
   const copied = copiedRoomLink !== null && copiedRoomLink === roomLink;
   const copiedResetTimerRef = useRef<number | null>(null);
   const copyRoomLinkRequestRef = useRef<object | null>(null);
+  const hlsPlaylistUrl = useMemo(() => {
+    if (!roomLink) return null;
+    try {
+      const url = new URL(roomLink);
+      url.hash = "";
+      url.search = "";
+      url.pathname = HLS_PLAYLIST_PATH;
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }, [roomLink]);
+  const [copiedHlsLink, setCopiedHlsLink] = useState<string | null>(null);
+  const copiedHls = copiedHlsLink !== null && copiedHlsLink === hlsPlaylistUrl;
+  const copiedHlsResetTimerRef = useRef<number | null>(null);
   const [switchingSource, setSwitchingSource] = useState(false);
   const [changingQuality, setChangingQuality] = useState(false);
   const [sharingPaused, setSharingPaused] = useState(false);
@@ -694,6 +715,10 @@ export function HostPage({
         copiedResetTimerRef.current = null;
       }
       copyRoomLinkRequestRef.current = null;
+      if (copiedHlsResetTimerRef.current !== null) {
+        window.clearTimeout(copiedHlsResetTimerRef.current);
+        copiedHlsResetTimerRef.current = null;
+      }
       viewerQualityEvidenceStore.clear();
       cancelViewerQualityEvidenceRender();
       activeRouteRevisionRef.current = 0;
@@ -3100,6 +3125,28 @@ export function HostPage({
     }
   }
 
+  async function copyHlsLink(): Promise<void> {
+    const link = hlsPlaylistUrl;
+    if (!link) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedHlsLink(link);
+      setNoticeValue((current) => current?.kind === "key" && current.key === "host.invite.copyHlsFailed" ? null : current);
+      if (copiedHlsResetTimerRef.current !== null) {
+        window.clearTimeout(copiedHlsResetTimerRef.current);
+      }
+      copiedHlsResetTimerRef.current = window.setTimeout(() => {
+        copiedHlsResetTimerRef.current = null;
+        setCopiedHlsLink(null);
+      }, 1_500);
+    } catch {
+      setCopiedHlsLink(null);
+      setNoticeErrorKey("host.invite.copyHlsFailed", "copy-failed");
+    }
+  }
+
   function handleRoomAccessFailure(
     error: unknown,
     activeRoom: HostRoomState,
@@ -4152,6 +4199,34 @@ export function HostPage({
                     }} />
                 </span>
               </div>
+              {hlsPlaylistUrl ? (
+                <div className="lr-invite-field">
+                  <RowGroup actions>
+                    <Btn
+                      icon={copiedHls ? "check" : "cast"}
+                      cap="host.invite.copyHls"
+                      title={copiedHls ? "common.copied" : "host.invite.copyHls"}
+                      hint="hint-copy-invite"
+                      hintTone={copiedHls ? "live" : undefined}
+                      hintMotion={copiedHls ? "still" : undefined}
+                      disabled={roomMutating}
+                      onClick={() => void copyHlsLink()}
+                    />
+                  </RowGroup>
+                  <Tooltip kind="hint-invite-link" text={hlsPlaylistUrl} className="lr-invite-hint">
+                    <input
+                      className="lr-invite-url"
+                      type="text"
+                      dir="ltr"
+                      value={hlsPlaylistUrl}
+                      readOnly
+                      spellCheck={false}
+                      aria-label={t("host.invite.hls")}
+                      onFocus={(event) => event.currentTarget.select()}
+                    />
+                  </Tooltip>
+                </div>
+              ) : null}
               {roomLinkBlocked ? <Pill icon="lock" tone="warn" comic="hint-policy-private"
                 label={t("host.invite.credentialRequired")} /> : null}
               <span className="lr-divider" aria-hidden="true" />
