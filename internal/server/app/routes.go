@@ -110,6 +110,11 @@ func (s *Server) route(
 		return
 	}
 
+	if s.config.HLSRoot != "" && strings.HasPrefix(path, "/live/") {
+		serveHLS(writer, request, s.config.HLSRoot, path)
+		return
+	}
+
 	if s.frontend != nil {
 		s.frontend.ServeHTTP(writer, request)
 		return

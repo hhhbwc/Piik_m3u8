@@ -92,6 +92,9 @@ type Config struct {
 	// NATPredictionSTUNURLs is nil when unset, which IceConfig distinguishes
 	// from a configured empty list.
 	NATPredictionSTUNURLs []string
+	// HLSRoot is the absolute directory whose `live/` subdirectory is served
+	// at /live/ for external players (HLS/m3u8). Empty disables serving.
+	HLSRoot string
 }
 
 // Load validates the whole process environment. Presence, not emptiness,
@@ -183,6 +186,12 @@ func Load(env map[string]string) (Config, error) {
 		return Config{}, err
 	}
 
+	// Only an explicit value enables HLS serving; an empty value disables it.
+	hlsRoot := strings.TrimFunc(env["HLS_SERVE_DIR"], protocol.IsJSWhitespace)
+	if hlsRoot != "" && !filepath.IsAbs(hlsRoot) {
+		return Config{}, errors.New("HLS_SERVE_DIR must be an absolute path")
+	}
+
 	if environment == EnvironmentProduction && len(stunURLs) == 0 {
 		return Config{}, errors.New("STUN is required in production")
 	}
@@ -206,6 +215,7 @@ func Load(env map[string]string) (Config, error) {
 		STUNURLs:                  stunURLs,
 		STUNListenAddresses:       stunListeners,
 		NATPredictionEnabled:      natPredictionEnabled,
+		HLSRoot:                   hlsRoot,
 	}, nil
 }
 
