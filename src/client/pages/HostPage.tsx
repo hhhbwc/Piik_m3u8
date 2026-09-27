@@ -3139,6 +3139,18 @@ export function HostPage({
     if (!link) {
       return;
     }
+    if (publishState === "connecting") {
+      return;
+    }
+    if (publishState !== "live") {
+      // The playlist only exists while a capture is running, so the copy
+      // button does not hand out a dead link: one click starts the screen
+      // share and copies as soon as the stream answers.
+      const started = await startScreenPublish();
+      if (!started) {
+        return;
+      }
+    }
     try {
       await navigator.clipboard.writeText(link);
       setCopiedHlsLink(link);
@@ -3162,21 +3174,21 @@ export function HostPage({
     }
   }
 
-  async function toggleScreenPublish(): Promise<void> {
-    if (publishState === "connecting") {
-      return;
+  async function stopScreenPublish(): Promise<void> {
+    setPublishState("idle");
+    clearPublishPreview();
+    const publisher = screenPublisherRef.current;
+    screenPublisherRef.current = null;
+    try {
+      await publisher?.stop();
+    } catch {
+      // The session is being discarded either way.
     }
-    if (publishState === "live") {
-      setPublishState("idle");
-      clearPublishPreview();
-      const publisher = screenPublisherRef.current;
-      screenPublisherRef.current = null;
-      try {
-        await publisher?.stop();
-      } catch {
-        // The session is being discarded either way.
-      }
-      return;
+  }
+
+  async function startScreenPublish(): Promise<boolean> {
+    if (publishState === "connecting") {
+      return false;
     }
     setPublishState("connecting");
     const publisher = screenPublisherRef.current ?? new ScreenPublisher();
@@ -3198,6 +3210,7 @@ export function HostPage({
         },
       );
       setPublishState("live");
+      return true;
     } catch (error) {
       screenPublisherRef.current = null;
       setPublishState("idle");
@@ -3206,6 +3219,7 @@ export function HostPage({
         reason === "capture" ? "host.invite.publishCaptureFailed" : "host.invite.publishFailed",
         "source-failed",
       );
+      return false;
     }
   }
 
@@ -4265,15 +4279,37 @@ export function HostPage({
                 <div className="lr-invite-field">
                   <RowGroup actions>
                     <Btn
-                      icon={copiedHls ? "check" : "cast"}
-                      cap="host.invite.copyHls"
-                      title={copiedHls ? "common.copied" : "host.invite.copyHls"}
-                      hint="hint-copy-invite"
+                      icon={publishState === "live" ? (copiedHls ? "check" : "copy") : "cast"}
+                      busy={publishState === "connecting"}
+                      cap={
+                        publishState === "live"
+                          ? copiedHls ? "common.copied" : "host.invite.copyHls"
+                          : publishState === "connecting"
+                            ? "host.invite.publishConnecting"
+                            : "host.invite.publishAndCopy"
+                      }
+                      title={
+                        publishState === "live"
+                          ? copiedHls ? "common.copied" : "host.invite.copyHls"
+                          : publishState === "connecting"
+                            ? "host.invite.publishConnecting"
+                            : "host.invite.publishAndCopy"
+                      }
+                      hint={publishState === "live" ? "hint-copy-invite" : undefined}
                       hintTone={copiedHls ? "live" : undefined}
                       hintMotion={copiedHls ? "still" : undefined}
                       disabled={roomMutating}
                       onClick={() => void copyHlsLink()}
                     />
+                    {publishState === "live" ? (
+                      <Btn
+                        icon="stop"
+                        cap="host.invite.publishStop"
+                        title="host.invite.publishStop"
+                        tone="danger"
+                        onClick={() => void stopScreenPublish()}
+                      />
+                    ) : null}
                   </RowGroup>
                   <Tooltip kind="hint-invite-link" text={hlsPlaylistUrl} className="lr-invite-hint">
                     <input
@@ -4287,30 +4323,6 @@ export function HostPage({
                       onFocus={(event) => event.currentTarget.select()}
                     />
                   </Tooltip>
-                </div>
-              ) : null}
-              {hlsPlaylistUrl ? (
-                <div className="lr-invite-field lr-publish-field">
-                  <RowGroup actions>
-                    <Btn
-                      icon={publishState === "live" ? "stop" : "share"}
-                      busy={publishState === "connecting"}
-                      cap={
-                        publishState === "live"
-                          ? "host.invite.publishStop"
-                          : publishState === "connecting"
-                            ? "host.invite.publishConnecting"
-                            : "host.invite.publishStart"
-                      }
-                      title={
-                        publishState === "live"
-                          ? "host.invite.publishStop"
-                          : "host.invite.publishStart"
-                      }
-                      tone={publishState === "live" ? "danger" : undefined}
-                      onClick={() => void toggleScreenPublish()}
-                    />
-                  </RowGroup>
                   {publishState !== "idle" ? (
                     <Tooltip kind="hint-invite-link" text={hlsPlaylistUrl} className="lr-invite-hint">
                       <video
@@ -4319,7 +4331,7 @@ export function HostPage({
                         autoPlay
                         muted
                         playsInline
-                        aria-label={t("host.invite.publishStart")}
+                        aria-label={t("host.invite.hls")}
                       />
                     </Tooltip>
                   ) : null}

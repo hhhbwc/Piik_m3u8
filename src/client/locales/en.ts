@@ -208,7 +208,7 @@ export const en: Record<CopyKey, string> = {
   "host.invite.hls": "HLS stream link (m3u8)",
   "host.invite.copyHls": "Copy m3u8 link",
   "host.invite.copyHlsFailed": "Could not copy the m3u8 link; try again",
-  "host.invite.publishStart": "Cast screen to VRChat",
+  "host.invite.publishAndCopy": "Share screen and copy m3u8",
   "host.invite.publishStop": "Stop casting",
   "host.invite.publishConnecting": "Connecting…",
   "host.invite.publishFailed": "Casting failed; check the server and try again",

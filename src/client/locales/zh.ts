@@ -208,7 +208,7 @@ export const zh = {
   "host.invite.hls": "HLS 直播链接（m3u8）",
   "host.invite.copyHls": "复制 m3u8 链接",
   "host.invite.copyHlsFailed": "无法复制 m3u8 链接，请稍后重试",
-  "host.invite.publishStart": "共享屏幕推流（VRChat）",
+  "host.invite.publishAndCopy": "共享屏幕并复制 m3u8",
   "host.invite.publishStop": "停止推流",
   "host.invite.publishConnecting": "正在连接…",
   "host.invite.publishFailed": "推流失败，请检查服务器后重试",
