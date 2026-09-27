@@ -81,6 +81,7 @@ type Server struct {
 	store         *room.Store
 	siteAccess    *siteAccessGate
 	frontend      http.Handler
+	whipProxy     http.Handler
 	logger        *slog.Logger
 	media         *sfu.Media
 	mediaMux      ice.UDPMux
@@ -150,6 +151,9 @@ func New(options Options) (*Server, error) {
 	}
 	if options.Assets != nil {
 		server.frontend = staticHandler(options.Assets, http.HandlerFunc(notFoundJSON))
+	}
+	if configuration.WHIPUpstream != nil {
+		server.whipProxy = newWHIPProxy(configuration.WHIPUpstream)
 	}
 	server.signalOptions = signal.Options{
 		Store:                     store,

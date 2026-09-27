@@ -95,6 +95,11 @@ type Config struct {
 	// HLSRoot is the absolute directory whose `live/` subdirectory is served
 	// at /live/ for external players (HLS/m3u8). Empty disables serving.
 	HLSRoot string
+	// WHIPUpstream is the absolute http(s) URL of a WHIP ingest endpoint
+	// (including its path and any credential query). When set, the app serves
+	// a same-origin WHIP proxy at /api/whip that forwards signaling there.
+	// Nil disables the proxy.
+	WHIPUpstream *url.URL
 }
 
 // Load validates the whole process environment. Presence, not emptiness,
@@ -192,6 +197,22 @@ func Load(env map[string]string) (Config, error) {
 		return Config{}, errors.New("HLS_SERVE_DIR must be an absolute path")
 	}
 
+	// Only an explicit value enables the WHIP proxy. The upstream URL is the
+	// ingest endpoint including its path. MediaMTX authenticates WHIP with an
+	// HTTP Basic header and ignores query credentials, so publish credentials
+	// travel as the URL's userinfo and the proxy converts them into that
+	// header — the browser never sees them.
+	var whipUpstream *url.URL
+	if raw := strings.TrimFunc(env["WHIP_PROXY_UPSTREAM"], protocol.IsJSWhitespace); raw != "" {
+		parsed, err := url.Parse(raw)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.Host == "" || parsed.Path == "" {
+			return Config{}, errors.New(
+				"WHIP_PROXY_UPSTREAM must be an absolute http(s) URL with a path")
+		}
+		whipUpstream = parsed
+	}
+
 	if environment == EnvironmentProduction && len(stunURLs) == 0 {
 		return Config{}, errors.New("STUN is required in production")
 	}
@@ -216,6 +237,7 @@ func Load(env map[string]string) (Config, error) {
 		STUNListenAddresses:       stunListeners,
 		NATPredictionEnabled:      natPredictionEnabled,
 		HLSRoot:                   hlsRoot,
+		WHIPUpstream:              whipUpstream,
 	}, nil
 }
 

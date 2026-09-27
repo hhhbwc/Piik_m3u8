@@ -103,6 +103,24 @@ func (s *Server) route(
 		return
 	}
 
+	if s.whipProxy != nil && isWHIPPath(path) {
+		// Publishing mutates the stream bridge, so it is gated like room
+		// creation: a valid origin plus site access. ICE media never passes
+		// through here — the browser reaches the ingest UDP endpoint directly.
+		if !s.allowedRequestOrigin(request) {
+			noStoreJSON(writer)
+			sendJSON(writer, http.StatusForbidden, errorBody{"Origin not allowed"})
+			return
+		}
+		if !s.roomCreationAuthorized(request) {
+			noStoreJSON(writer)
+			sendJSON(writer, http.StatusUnauthorized, errorBody{"Unauthorized"})
+			return
+		}
+		s.whipProxy.ServeHTTP(writer, request)
+		return
+	}
+
 	if strings.HasPrefix(path, "/api/") {
 		// The catch-all sets no nosniff header; only the concrete routes do.
 		writer.Header().Set("Cache-Control", "no-store")

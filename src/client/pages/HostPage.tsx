@@ -23,6 +23,7 @@ import {
   type RoutePolicy,
 } from "../../shared/protocol";
 import { browserCaptureDevices } from "../media/capture-devices";
+import { ScreenPublisher, ScreenPublishError } from "../lib/whip-publisher";
 import { AppHeader, LedStrip } from "../components/living/Header";
 import { WelcomeLine } from "../components/living/WelcomeLine";
 import { Couch, type CouchEntry } from "../components/living/Couch";
@@ -534,6 +535,12 @@ export function HostPage({
   const [copiedHlsLink, setCopiedHlsLink] = useState<string | null>(null);
   const copiedHls = copiedHlsLink !== null && copiedHlsLink === hlsPlaylistUrl;
   const copiedHlsResetTimerRef = useRef<number | null>(null);
+  // WHIP screen publishing for external HLS players (VRChat). The publisher
+  // outlives renders; the preview element shows the captured surface while
+  // the session is live.
+  const [publishState, setPublishState] = useState<"idle" | "connecting" | "live">("idle");
+  const screenPublisherRef = useRef<ScreenPublisher | null>(null);
+  const publishPreviewRef = useRef<HTMLVideoElement | null>(null);
   const [switchingSource, setSwitchingSource] = useState(false);
   const [changingQuality, setChangingQuality] = useState(false);
   const [sharingPaused, setSharingPaused] = useState(false);
@@ -719,6 +726,8 @@ export function HostPage({
         window.clearTimeout(copiedHlsResetTimerRef.current);
         copiedHlsResetTimerRef.current = null;
       }
+      void screenPublisherRef.current?.stop();
+      screenPublisherRef.current = null;
       viewerQualityEvidenceStore.clear();
       cancelViewerQualityEvidenceRender();
       activeRouteRevisionRef.current = 0;
@@ -3147,6 +3156,59 @@ export function HostPage({
     }
   }
 
+  function clearPublishPreview(): void {
+    if (publishPreviewRef.current) {
+      publishPreviewRef.current.srcObject = null;
+    }
+  }
+
+  async function toggleScreenPublish(): Promise<void> {
+    if (publishState === "connecting") {
+      return;
+    }
+    if (publishState === "live") {
+      setPublishState("idle");
+      clearPublishPreview();
+      const publisher = screenPublisherRef.current;
+      screenPublisherRef.current = null;
+      try {
+        await publisher?.stop();
+      } catch {
+        // The session is being discarded either way.
+      }
+      return;
+    }
+    setPublishState("connecting");
+    const publisher = screenPublisherRef.current ?? new ScreenPublisher();
+    screenPublisherRef.current = publisher;
+    try {
+      await publisher.start(
+        (stream) => {
+          if (publishPreviewRef.current) {
+            publishPreviewRef.current.srcObject = stream;
+          }
+        },
+        () => {
+          // The capture ended by itself (browser stop-sharing bar).
+          if (screenPublisherRef.current === publisher) {
+            screenPublisherRef.current = null;
+          }
+          setPublishState("idle");
+          clearPublishPreview();
+        },
+      );
+      setPublishState("live");
+    } catch (error) {
+      screenPublisherRef.current = null;
+      setPublishState("idle");
+      const reason = error instanceof ScreenPublishError ? error.reason : "rejected";
+      setNoticeErrorKey(
+        reason === "capture" ? "host.invite.publishCaptureFailed" : "host.invite.publishFailed",
+        "source-failed",
+      );
+    }
+  }
+
   function handleRoomAccessFailure(
     error: unknown,
     activeRoom: HostRoomState,
@@ -4225,6 +4287,42 @@ export function HostPage({
                       onFocus={(event) => event.currentTarget.select()}
                     />
                   </Tooltip>
+                </div>
+              ) : null}
+              {hlsPlaylistUrl ? (
+                <div className="lr-invite-field lr-publish-field">
+                  <RowGroup actions>
+                    <Btn
+                      icon={publishState === "live" ? "stop" : "share"}
+                      busy={publishState === "connecting"}
+                      cap={
+                        publishState === "live"
+                          ? "host.invite.publishStop"
+                          : publishState === "connecting"
+                            ? "host.invite.publishConnecting"
+                            : "host.invite.publishStart"
+                      }
+                      title={
+                        publishState === "live"
+                          ? "host.invite.publishStop"
+                          : "host.invite.publishStart"
+                      }
+                      tone={publishState === "live" ? "danger" : undefined}
+                      onClick={() => void toggleScreenPublish()}
+                    />
+                  </RowGroup>
+                  {publishState !== "idle" ? (
+                    <Tooltip kind="hint-invite-link" text={hlsPlaylistUrl} className="lr-invite-hint">
+                      <video
+                        ref={publishPreviewRef}
+                        className="lr-publish-preview"
+                        autoPlay
+                        muted
+                        playsInline
+                        aria-label={t("host.invite.publishStart")}
+                      />
+                    </Tooltip>
+                  ) : null}
                 </div>
               ) : null}
               {roomLinkBlocked ? <Pill icon="lock" tone="warn" comic="hint-policy-private"
